@@ -1,25 +1,111 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: 'Reproducible Research: Peer Assesment 1'
+author: "cyanophyta"
+date: "August 18, 2017"
+output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Overview
 
-## Loading and preprocessing the data
+This study is on Personal Activity data collected from monitoring devices attached to body of a volunteer. Data is collected for two months from the same volunteer, datapoints taken once every 5 minutes.  
+Goal of this study is to compute summary statistics for the data and to identify various patterns in the data after necessary cleaning, basic processing and exploration.
 
+## Loading and preprocessing data
 
+We download the dataset from [Activity Monitoring Data link][1] and extract "activity.csv" from it. After loading the data in a data frame, we check dimension, data types of the data frame. We also check first few rows of data. 
 
-## What is mean total number of steps taken per day?
+[1]: https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip "Activity Monitoring Data link"
 
+```{r}
+library(knitr, warn.conflicts = FALSE, quietly = TRUE)
+library(dplyr, warn.conflicts = FALSE, quietly = TRUE)
+library(lattice, warn.conflicts = FALSE, quietly = TRUE)
+df <- read.csv("activity.csv", na.strings = "NA")
+dim(df)
+str(df)
+head(df)
+```
 
+## Exploring Total Daily Steps
 
-## What is the average daily activity pattern?
+We first plot a histogram of total daily steps and compute mean and median of this variable.
 
+```{r}
+stepsDTable <- df %>% group_by(date) %>% summarise(totalDailySteps = sum(steps))
+meanDailySteps <- mean(stepsDTable$totalDailySteps, na.rm = TRUE)
+medianDailySteps <- median(stepsDTable$totalDailySteps, na.rm = TRUE)
+hist(stepsDTable$totalDailySteps, main = "Histogram of Daily Steps", 
+     xlab = "Daily Steps")
+abline(v = medianDailySteps, col = "green")
+```
 
+Green vertical line shows the median of daily steps, which is `r medianDailySteps`. Since mean of daily steps, which is `r format(meanDailySteps, scientific = FALSE)`, is very close to the median, plot cannot distinctly show both due to long range of values of daily steps, which is [`r min(stepsDTable$totalDailySteps, na.rm=TRUE)`, `r max(stepsDTable$totalDailySteps, na.rm=TRUE)`].
 
-## Imputing missing values
+## Average daily activity pattern
 
+As data collection happens once every 5 minutes, there are (12 * 24 =) `r 12*24L` entries for each day. We now consider average number of steps for each of these time periods, average taken over all days of data collection.
 
+```{r}
+stepsITable <- df %>% group_by(interval) %>% summarise(averageISteps = mean(steps, na.rm = TRUE))
+maxISteps <- max(stepsITable$averageISteps)
+modeISteps <- stepsITable[stepsITable$averageISteps == maxISteps, 1]
+with(stepsITable, plot(interval, averageISteps, main = "Time Series plot of Average Steps over intervals", 
+     xlab = "Time interval", ylab = "Number of Steps", type = "l"))
+abline(v = modeISteps, col = "green")
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+The green line on this time-series plot marks maximum average steps over intervals, and this maximum is attained at interval `r modeISteps`
+
+## Handling Missing Values
+
+This dataset has a number of rows containing missing values ('NA') in steps variable, as it was clear from the first few rows of the data frame. First, we compute the number of rows with missing values. Then we try to replace such missing values with average for the interval over all days. With this replacement done, we redraw histogram of Total Daily Steps and compute mean and median for it.
+
+```{r}
+missingSteps <- is.na(df$steps)
+totalMissingSteps <- sum(missingSteps)
+totalMissingSteps
+```
+There are a total of `r totalMissingSteps` rows with NA values in 'steps' variable. We create a new data frame from the old one after replacing these missing values by average steps for that interval.
+
+```{r}
+newdf <- df %>% 
+  mutate(steps = ifelse(is.na(steps), 
+                        stepsITable$averageISteps[stepsITable$interval %in% interval], steps))
+newStepsDTable <- newdf %>% group_by(date) %>% summarise(totalDailySteps = sum(steps))
+newMeanDailySteps <- mean(newStepsDTable$totalDailySteps)
+newMedianDailySteps <- median(newStepsDTable$totalDailySteps)
+hist(newStepsDTable$totalDailySteps, main = "Histogram of Daily Steps", 
+     xlab = "Daily Steps")
+abline(v = newMedianDailySteps, col = "green")
+```
+
+Green vertical line shows the median of daily steps, which is `r format(newMedianDailySteps, scientific = FALSE)`. Since mean of daily steps, which is `r format(newMeanDailySteps, scientific = FALSE)`, is same as the median, we didn't try to add a separate vertical line on mean. Just to get confirmation that this new data frame has no missing values in steps variable, we check on finding number of 'NA' in this column. 
+
+```{r}
+sum(is.na(newdf$steps))
+```
+
+After this cleaning of missing values by interval-wise average steps, median value of total daily steps has become equal to mean now and mean hasn't changed. 
+
+Earlier, missing values were missing for few days (eight days, to be precise), and so, on those days each interval had a missing value. Once we replaced these missing 'steps' values by interval-wise average, total steps for those days became equal to total of interval-wise average (over all the  intervals in a day), which is same as mean daily total. To summarize, by replacing missing values by interval-wise averages, we obtained replacement of missing total daily steps, and this replacement is same as average of total daily steps. So, mean hasn't changed after this cleaning exercise. Since, earlier median was less than mean and newly available values of total daily steps are same as mean, these new values brought median closer to mean. Incidentally, mean and median are now same after the cleaning exercise.
+
+## Study of possible differences in data between weekdays and weekends
+
+We'll use the cleaned dataset for checking if data patterns are different on weekdays as compared to patterns on weekends.
+
+```{r}
+newdf <- newdf %>% mutate(workday = as.factor(ifelse(weekdays(as.Date(date), abbreviate = TRUE) %in% c("Sat", "Sun"), "weekend", "weekday")))
+newStepsITable <- newdf %>% group_by(interval, workday) %>% summarise(averageISteps = mean(steps))
+newMaxISteps <- max(newStepsITable$averageISteps)
+newModeISteps <- stepsITable[newStepsITable$averageISteps == maxISteps, 1]
+with(newStepsITable, xyplot(averageISteps ~ interval|workday, main = "Time Series plot of Average Steps over intervals factored by workday type", 
+     xlab = "Time interval", ylab = "Number of Steps", type = "l", layout = c(1, 2)))
+```
+
+As these two timer-series plots demonstrate, there are some differences in daily activities between working days (weekdays) and weekends. During weekdays, number of steps are more during 05:00 and 09:00 hours, with peak number of steps are around 08:30; previous time-series plot without conditioning on weekdays, had shown this peak at 08:35. Approximately between 09:30 and 18:30, there are more activities (causing more steps measured) during weekend as compared to weekdays. That is expected as this time period is usual 'office working hours' on weekdays and usual 'daytime activity time' during weekends.
+
+## Conclusion
+We studied activity monitoring data collected over 2 months from a device attached to a person. After cleaning missing values by interval-specific average, we found that median of total daily steps has moved close to mean. We also observed that mode of number of steps over interval occurs at around 08:35 hours and that pattern of steps over time intervals are different between weekdays and weekends, during early morning hours and midday hours.
